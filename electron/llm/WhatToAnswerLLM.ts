@@ -2,6 +2,7 @@ import { LLMHelper } from "../LLMHelper";
 import { UNIVERSAL_WHAT_TO_ANSWER_PROMPT } from "./prompts";
 import { TINY_WHAT_TO_ANSWER_PROMPT } from "./tinyPrompts";
 import { resolveV2SystemPrompt, v2TierForPromptTier } from "./promptSystemV2";
+import { resolveWtaPersonaV2Input } from "./wtaCheatSheet";
 import { composeWtaSystemPrompt } from "./wtaSystemPrompt";
 import { estimateTokens } from "./modelCapabilities";
 import { TemporalContext } from "./TemporalContextBuilder";
@@ -785,7 +786,8 @@ The user triggered this action with a coding problem on screen and NO new questi
             // appends (skills are orthogonal to the mode/action contracts).
             // Flag off → legacy constants + suffix, byte-for-byte unchanged.
             const v2BasePrompt = resolveV2SystemPrompt({
-                action: 'what_to_say',
+                // Cheat-sheet layout for every non-coding WTA turn (2026-09-30).
+                ...resolveWtaPersonaV2Input({ codingTurn: Boolean(codingSignals.codingTask) }),
                 tier: v2TierForPromptTier(this.llmHelper.getPromptTier()),
                 customInstructions: pinnedModeInstructions || undefined,
                 ...codingSignals,

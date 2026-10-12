@@ -5049,6 +5049,13 @@ export function initializeIpcHandlers(appState: AppState): void {
           //    across DIFFERENT questions are compressed to speakable prose so a
           //    long session never reads as canned. Deterministic; no extra LLM call.
           if (!isCodingChat) {
+            // Typed chat panel (no skipSystemPrompt) carries the <chat_layout>
+            // cheat-sheet structure on purpose: the spoken-shape flatteners below
+            // (technical-concept flatten, scaffold compression, repetition repair)
+            // would collapse its labeled sections into one paragraph, and the
+            // repetition guard would flag every answer because they share a
+            // template. The spoken "Answer" button (skipSystemPrompt) is unchanged.
+            const keepTypedChatLayout = !options?.skipSystemPrompt;
             try {
               const { cleanAnswerArtifacts, compressToSpeakable, SCAFFOLD_LABEL_RE } = require('./llm/answerPolish') as typeof import('./llm/answerPolish');
               const cleaned = cleanAnswerArtifacts(fullResponse);
@@ -5074,7 +5081,7 @@ export function initializeIpcHandlers(appState: AppState): void {
               // cases" list, a long analogy the user didn't ask for) is tightened to a
               // short spoken answer. Only for technical_concept_answer; analogy kept when
               // the user asked for simple/beginner terms.
-              if (answerPlan.answerType === 'technical_concept_answer') {
+              if (answerPlan.answerType === 'technical_concept_answer' && !keepTypedChatLayout) {
                 const simpleRequested = answerPlan.answerStyle === 'beginner' || /\b(simple|simply|beginner|eli5|like i'?m (?:5|five)|layman)\b/i.test(message);
                 // FLATTEN-ONLY (user decision 2026-06-16): strip doc structure (headers/bullets/
                 // tables/code) into one spoken paragraph, but NEVER truncate — all prose content
@@ -5099,7 +5106,7 @@ export function initializeIpcHandlers(appState: AppState): void {
               SCAFFOLD_LABEL_RE.lastIndex = 0;
               const hasVisibleScaffold = SCAFFOLD_LABEL_RE.test(fullResponse);
               const structureRequested = ['detailed', 'bullets', 'star', 'exam', 'notes'].includes(answerPlan.answerStyle as string);
-              if (hasVisibleScaffold && !structureRequested) {
+              if (hasVisibleScaffold && !structureRequested && !keepTypedChatLayout) {
                 const speakable = compressToSpeakable(fullResponse);
                 if (speakable.length >= 40) {
                   fullResponse = speakable;
@@ -5119,7 +5126,7 @@ export function initializeIpcHandlers(appState: AppState): void {
                   : undefined;
               } catch { /* projects optional */ }
               const verdict = _manualDiversityGuard.check(fullResponse, answerPlan.answerType, message, { availableProjects });
-              if (verdict.repeated) {
+              if (verdict.repeated && !keepTypedChatLayout) {
                 piTelemetry.emit('pi_answer_repeated', { answerType: answerPlan.answerType, reason: verdict.reason });
                 // Deterministic repair, cheapest-first: (1) vary the OPENING so two answers
                 // don't start identically, (2) fall back to scaffold compression. Both keep
@@ -14708,6 +14715,21 @@ export function initializeIpcHandlers(appState: AppState): void {
       throw error;
     }
     }, (r: any) => !r || r.refined === null || r.refined === undefined);
+  });
+
+  // "More": go deeper on the last question with only new material (2026-09-30).
+  safeHandle('generate-more', async (_, question: string | null, previousAnswers: string[]) => {
+    return _tracked(async () => {
+      const intelligenceManager = appState.getIntelligenceManager();
+      const answers = Array.isArray(previousAnswers) ? previousAnswers.filter((a) => typeof a === 'string') : [];
+      const more = await intelligenceManager.runMore(typeof question === 'string' ? question : null, answers);
+      if (more) {
+        try {
+          PhoneMirrorService.getInstance().publishAssistantMessage(crypto.randomUUID(), more, 'More');
+        } catch (_) {}
+      }
+      return { more };
+    }, (r: any) => !r || r.more === null || r.more === undefined);
   });
 
   // MODE 4: Recap (Summary)

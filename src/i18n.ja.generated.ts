@@ -332,6 +332,7 @@ export const JA_GENERATED: Record<string, string> = {
     'Follow Page': 'ページに従う',
     'Follow Up': 'フォローアップ',
     'Follow Up Question': 'フォローアップの質問',
+    'More': 'さらに詳しく',
     'Follow-Up System': 'フォローアップシステム',
     'Follow-up Draft': 'フォローアップの下書き',
     'Follow-up draft': 'フォローアップの下書き',

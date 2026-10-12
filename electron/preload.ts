@@ -478,6 +478,7 @@ interface ElectronAPI {
     intent: string,
     userRequest?: string,
   ) => Promise<{ refined: string | null; intent: string }>;
+  generateMore: (question: string | null, previousAnswers: string[]) => Promise<{ more: string | null }>;
   generateRecap: () => Promise<{ summary: string | null }>;
   submitManualQuestion: (question: string) => Promise<{ answer: string | null; question: string }>;
   getIntelligenceContext: () => Promise<{
@@ -1988,6 +1989,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('generate-brainstorm', imagePaths, problemStatement),
   generateFollowUp: (intent: string, userRequest?: string) =>
     ipcRenderer.invoke('generate-follow-up', intent, userRequest),
+  generateMore: (question: string | null, previousAnswers: string[]) =>
+    ipcRenderer.invoke('generate-more', question, previousAnswers),
   generateFollowUpQuestions: () => ipcRenderer.invoke('generate-follow-up-questions'),
   generateRecap: () => ipcRenderer.invoke('generate-recap'),
   submitManualQuestion: (question: string) =>

@@ -115,7 +115,10 @@ describe('size — v2 must be dramatically smaller than the legacy constants', (
       // 1.05 → 1.10 (2026-08-02): the teleprompter display contract (bounded
       // hot-word marks + bottom gist) added ~230 chars to the local core — a
       // deliberate product addition, still within a 10% envelope of TINY.
-      assert.ok(p.length < legacy.length * 1.10,
+      // 1.10 → 1.15 (2026-10-12): the labeled practice-story rule ("Example to
+      // adapt", user decision) added ~210 chars to the local core and final
+      // check; the absolute 8k local budget above is unchanged.
+      assert.ok(p.length < legacy.length * 1.15,
         `local/general/${action} (${p.length}) not smaller than legacy TINY (${legacy.length})`);
     }
   });
@@ -654,16 +657,55 @@ describe('final check at the recency position (067-class fix)', () => {
     assert.ok(p.trim().endsWith('</final_check>'), 'final check must be the last block');
     assert.ok(p.indexOf('<custom_instructions>') < p.indexOf('<final_check>'), 'custom instructions must not come after the final check');
     assert.ok(p.includes('stated as needing confirmation — never assumed'), 'unknown-personal-fact law missing');
-    assert.ok(p.includes('A "closest experience" pivot contains only real, grounded details'), 'pivot-grounding law missing');
+    assert.ok(p.includes('an invented practice story is marked "Example to adapt"'), 'practice-story labeling law missing');
     assert.ok(p.includes('no internal value or its label is named even while declining'), 'confidentiality law missing');
     assert.ok(p.includes("The silence gate's verdict for this action was obeyed"), 'silence law missing');
   });
 
-  test('truthfulness pins the pivot-story contents to grounded facts (062-class fix)', () => {
-    const p = v2.buildSystemPromptV2({ mode: 'looking-for-work', action: 'what_to_say', tier: 'cloud' });
-    assert.ok(p.includes('every detail inside that pivot story (the people, the deadline, the scale, your role) must itself be real'));
-    assert.ok(p.includes('speak to skills in general terms instead of manufacturing a scene'));
-  });
+  // User decision 2026-10-12: experience questions may get a hypothetical
+  // practice story when nothing relevant is on file — real background first,
+  // never for pure concept questions, always labeled "Example to adapt".
+  for (const tier of TIERS) {
+    test(`${tier}: truthfulness allows a labeled hypothetical experience story`, () => {
+      const p = v2.buildSystemPromptV2({ mode: 'looking-for-work', action: 'what_to_say', tier });
+      // The local tier has no tagged blocks: its compressed truth rules live in
+      // LOCAL_CORE (kept short for the 8k local size budget).
+      const t = tier === 'cloud' ? p.slice(p.indexOf('<truthfulness>'), p.indexOf('</truthfulness>')) : p;
+      const expected = tier === 'cloud'
+        ? ['For practice questions about professional experience', "use the candidate's real background when available",
+           'generate a realistic hypothetical example', 'Do not invent experience stories for questions that only ask about technical concepts']
+        : ['Experience questions: use real background', 'Not for technical concept questions'];
+      for (const phrase of [...expected, 'situation → action → result', 'Example to adapt']) {
+        assert.ok(t.includes(phrase), `${tier}: missing ${phrase}`);
+      }
+      assert.ok(!t.includes('do not fabricate a sample memory'), 'old sample-memory ban still present');
+    });
+
+    test(`${tier}: hypothetical stories carry no invented company names or exact figures; other facts stay grounded`, () => {
+      const p = v2.buildSystemPromptV2({ mode: 'looking-for-work', action: 'what_to_say', tier });
+      const t = tier === 'cloud' ? p.slice(p.indexOf('<truthfulness>'), p.indexOf('</truthfulness>')) : p;
+      assert.match(t, /no invented company names or exact figures/);
+      assert.match(t, /Never invent identity, credentials/);
+      assert.match(t, tier === 'cloud' ? /Numbers discipline/ : /State a specific figure only when it appears in the evidence/);
+    });
+
+    test(`${tier}: context policy no longer limits behavioral examples to grounded facts only`, () => {
+      const p = v2.buildSystemPromptV2({ mode: 'looking-for-work', action: 'what_to_say', tier });
+      assert.ok(!p.includes('Personal history, behavioral examples, role fit, and status: only grounded user facts'));
+      assert.ok(!p.includes('Never invent personal history, credentials, employers, projects'), 'local core still bans all experience stories');
+      if (tier === 'cloud') {
+        const c = p.slice(p.indexOf('<context_policy>'), p.indexOf('</context_policy>'));
+        assert.ok(c.includes('Example to adapt'));
+      }
+    });
+
+    test(`${tier}: final check labels practice stories and still requires confirmation for unknown personal facts`, () => {
+      const p = v2.buildSystemPromptV2({ mode: 'general', action: 'answer', tier });
+      const f = p.slice(p.indexOf('<final_check>'), p.indexOf('</final_check>'));
+      assert.ok(f.includes('Example to adapt'));
+      assert.ok(!f.includes('A "closest experience" pivot contains only real, grounded details'));
+    });
+  }
 
   test('local tier carries the compact final check as its last block', () => {
     const p = v2.buildSystemPromptV2({ mode: 'general', action: 'answer', tier: 'local' });
@@ -722,17 +764,18 @@ describe('flag gating — default ON (promoted), env kill-switch preserves legac
 
 // ── Typed-chat layout (chatSurface, 2026-08-02) ──────────────────────────────
 //
-// The chat panel is READ, not spoken — it gets the scannable layout (lead
-// sentence → bold-labeled sections → "Good interview answer:" quotable close)
-// while every spoken surface keeps the 15-30s human shape. Attached only when
-// the caller marks the surface, exactly like codingTask.
+// The chat panel gets the interview-answer layout (2026-09-30: one speakable
+// answer, definition → mechanism → rule → guaranteed-output example →
+// consequence, no bold section labels) while every spoken surface keeps the
+// 15-30s human shape. Attached only when the caller marks the surface,
+// exactly like codingTask.
 
 describe('chatSurface — typed-chat layout attachment', () => {
   test('chatSurface attaches the layout in every mode', () => {
     for (const mode of MODES) {
       const p = v2.buildSystemPromptV2({ mode, action: 'answer', tier: 'cloud', chatSurface: true });
       assert.ok(p.includes('<chat_layout>'), `${mode}: chat layout missing`);
-      assert.ok(p.includes('Good interview answer:'), `${mode}: quotable-close law missing`);
+      assert.ok(p.includes('speakable interview answer'), `${mode}: speakable-answer law missing`);
     }
   });
 
@@ -768,6 +811,18 @@ describe('chatSurface — typed-chat layout attachment', () => {
     assert.equal(desc?.chatSurface, true, 'descriptor lost chatSurface');
     const local = v2.buildSystemPromptV2({ ...desc, tier: 'local' });
     assert.ok(local.includes('<chat_layout>'), 'downgraded composition lost the chat layout');
+  });
+
+  // Live interview 2026-10-12: meta talk about the interview and "you"
+  // addressing the listener. The voice rules stay; the long phrase lists went.
+  test('chat layout (cloud and local) keeps the candidate voice and never addresses "you"', () => {
+    for (const tier of TIERS) {
+      const p = v2.buildSystemPromptV2({ mode: 'technical-interview', action: 'answer', tier, chatSurface: true });
+      const layout = p.slice(p.indexOf('<chat_layout>'), p.indexOf('</chat_layout>')).toLowerCase();
+      assert.match(layout, /candidate's own voice/, `${tier}: voice rule missing`);
+      assert.match(layout, /never talk about the interview/, `${tier}: no-meta rule missing`);
+      assert.match(layout, /never address the listener as "you"/, `${tier}: no-"you" rule missing`);
+    }
   });
 
   test('chat layout never weakens the confidentiality/grounding laws (final check still last)', () => {

@@ -69,6 +69,7 @@ import { recordAttribution } from './intelligence/IntelligenceAttribution';
 // Follow-up: type getKnowledgeOrchestrator() properly and drop this import.
 import type { PromptAssemblyResult } from './premium/contracts';
 import type { AnswerType } from './llm/AnswerPlanner';
+import { resolveWtaPersonaV2Input, wtaUsesSpokenLengthDefault, wtaFlattensStructure } from './llm/wtaCheatSheet';
 
 /**
  * Credential-scrub a trace payload before it is stringified.
@@ -431,6 +432,9 @@ export class IntelligenceEngine extends EventEmitter {
      * question (answer). Null ⇒ the cooldown behaves exactly as it always has.
      */
     private lastTriggerQuestion: string | null = null;
+    // The question the latest stored WTA answer was generated for — More deepens
+    // THIS, not whatever the interviewer said after it (2026-09-30).
+    private lastAnsweredWtaQuestion: string | null = null;
 
     // Speculative inference: start LLM on high-confidence interviewer partials
     private speculativeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -3804,6 +3808,8 @@ export class IntelligenceEngine extends EventEmitter {
                         // (measured: 73/85 live answers overshot 60 words,
                         // median 155). It still rides — as the app's DEFAULT.
                         defaultLengthDirective: (() => {
+                            // The spoken 40-60 word default fights the cheat-sheet layout (2026-09-30).
+                            if (!wtaUsesSpokenLengthDefault({ codingTurn: isCoding })) return undefined;
                             try {
                                 const { renderLengthDirectiveForPlan } = require('./llm/AnswerPlanner') as typeof import('./llm/AnswerPlanner');
                                 return renderLengthDirectiveForPlan(answerPlan) || undefined;
@@ -3938,8 +3944,6 @@ export class IntelligenceEngine extends EventEmitter {
                                 // script-for-the-user contract turns "what is the
                                 // professor's definition of entropy?" into words
                                 // to recite instead of an explanation.
-                                const _explanatoryMode = snapshotModeInfo?.templateType === 'lecture'
-                                    || snapshotModeInfo?.templateType === 'general';
                                 // ── T3: the repeat-press directive, on the SYSTEM channel ──
                                 //
                                 // Its only carrier was `intentContext` ->
@@ -3961,7 +3965,8 @@ export class IntelligenceEngine extends EventEmitter {
                                 // and belongs on the same channel that already
                                 // carries the coding contract it refers to.
                                 const _base = resolveV2SystemPrompt({
-                                    action: (_liveCoding || _explanatoryMode) ? 'answer' : 'what_to_say',
+                                    // Cheat-sheet layout for every non-coding WTA turn (2026-09-30).
+                                    ...resolveWtaPersonaV2Input({ codingTurn: Boolean(_liveCoding) }),
                                     tier: v2TierForPromptTier(this.llmHelper.getPromptTier?.()),
                                     activeMode: snapshotModeInfo ?? undefined,
                                     codingTask: codingTask || _promoted,
@@ -6370,7 +6375,7 @@ export class IntelligenceEngine extends EventEmitter {
                     // lets compressToSpeakable's existing generic strip run.
                     SCAFFOLD_LABEL_RE.lastIndex = 0;
                     BOLD_PSEUDO_HEADER_RE.lastIndex = 0;
-                    if (SCAFFOLD_LABEL_RE.test(cleaned) || BOLD_PSEUDO_HEADER_RE.test(cleaned)) {
+                    if (wtaFlattensStructure({ codingTurn: isCoding }) && (SCAFFOLD_LABEL_RE.test(cleaned) || BOLD_PSEUDO_HEADER_RE.test(cleaned))) {
                         const speakable = compressToSpeakable(cleaned);
                         if (speakable.trim().length >= 40) cleaned = speakable;
                     }
@@ -6387,7 +6392,7 @@ export class IntelligenceEngine extends EventEmitter {
                 // full version, matching what manual chat's always-on guard already does).
                 // All gate internally on answer type, so a coding/lecture/technical answer is
                 // a no-op. Flag-OFF → byte-for-byte unchanged.
-                if (isIntelligenceFlagEnabled('answerDiversityGuard')) {
+                if (isIntelligenceFlagEnabled('answerDiversityGuard') && wtaFlattensStructure({ codingTurn: isCoding })) {
                     const shaped = applyAnswerContract({
                         answer: finalWtaAnswer,
                         answerStyle: answerPlan.answerStyle as string,
@@ -6413,6 +6418,7 @@ export class IntelligenceEngine extends EventEmitter {
             } catch { /* normalizer never blocks the answer */ }
 
             this.session.addAssistantMessage(finalWtaAnswer, wtaWriteDecision, 'what_to_answer');
+            this.lastAnsweredWtaQuestion = (answerPlan.question || question || extractedQuestion.latestQuestion || lastInterviewerTurn || '').trim() || null;
 
             // Full-JIT write-gating law (§6): a provider-error/no-answer WTA
             // fallback (deadline timeout, leaked-schema-stub) carries a
@@ -7042,6 +7048,62 @@ export class IntelligenceEngine extends EventEmitter {
             this.setMode('idle');
             return fullRefined;
 
+        } catch (error) {
+            this.emit('error', error as Error, 'follow_up');
+            this.setMode('idle');
+            return null;
+        }
+    }
+
+    /**
+     * "More" quick action (2026-09-30): go deeper on the last question with only
+     * what none of `previousAnswers` (base answer + earlier Mores, oldest first)
+     * already cover. `question` is null for button-triggered answers — the
+     * interviewer's last turn stands in. Streams on the refined-answer channel.
+     */
+    async runMore(question: string | null, previousAnswers: string[]): Promise<string | null> {
+        const { MORE_INTENT, MORE_SYSTEM_PROMPT, buildMoreUserMessage, resolveMoreQuestion, normalizeMoreHeader } = require('./llm/MorePrompt') as typeof import('./llm/MorePrompt');
+        const answers = (previousAnswers || []).filter((a) => typeof a === 'string' && a.trim());
+        if (answers.length === 0) {
+            this.emit('refined_answer', "There's no answer yet to go deeper on — ask something first.", MORE_INTENT);
+            return null;
+        }
+        const resolvedQuestion = resolveMoreQuestion(question, this.lastAnsweredWtaQuestion, this.session.getLastInterviewerTurn());
+
+        this.setMode('follow_up');
+        const generationId = ++this.currentGenerationId;
+        let full = '';
+        let streamAborted = false;
+        try {
+            const stream = this.llmHelper.streamChat(
+                buildMoreUserMessage(resolvedQuestion, answers),
+                undefined,
+                undefined,
+                MORE_SYSTEM_PROMPT,
+                true, // synthesized meta-message — keep it out of the knowledge-mode classifier
+                true, // skipModeInjection: the More prompt owns the shape (legacy mode template must not ride on top)
+            );
+            for await (const token of stream) {
+                if (this.currentGenerationId !== generationId) {
+                    await stream.return(undefined);
+                    streamAborted = true;
+                    break;
+                }
+                this.emit('refined_answer_token', token, MORE_INTENT);
+                full += token;
+            }
+            if (!streamAborted) {
+                if (full) {
+                    full = normalizeMoreHeader(full);
+                    this.session.addAssistantMessage(full, undefined, 'what_to_answer');
+                    this.session.pushUsage({ type: 'followup', timestamp: Date.now(), question: 'More', answer: full });
+                    this.emit('refined_answer', full, MORE_INTENT);
+                } else {
+                    this.emit('refined_answer', "Couldn't get more detail this time — try again.", MORE_INTENT);
+                }
+            }
+            this.setMode('idle');
+            return full || null;
         } catch (error) {
             this.emit('error', error as Error, 'follow_up');
             this.setMode('idle');

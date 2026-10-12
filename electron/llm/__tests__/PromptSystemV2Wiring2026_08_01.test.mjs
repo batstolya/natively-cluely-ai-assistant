@@ -32,7 +32,9 @@ describe('action LLMs consult the v2 resolver with the correct action', () => {
   const cases = [
     ['../AssistLLM.ts', 'assist', 'UNIVERSAL_ASSIST_PROMPT'],
     ['../AnswerLLM.ts', 'answer', 'UNIVERSAL_ANSWER_PROMPT'],
-    ['../WhatToAnswerLLM.ts', 'what_to_say', 'UNIVERSAL_WHAT_TO_ANSWER_PROMPT'],
+    // Cheat-sheet WTA (2026-09-30): the action comes from resolveWtaPersonaV2Input
+    // ('answer' + chatSurface for non-coding turns) — see WtaCheatSheet2026_09_30.test.mjs.
+    ['../WhatToAnswerLLM.ts', 'resolveWtaPersonaV2Input(', 'UNIVERSAL_WHAT_TO_ANSWER_PROMPT'],
     ['../ClarifyLLM.ts', 'clarify', 'CLARIFY_MODE_PROMPT'],
     ['../BrainstormLLM.ts', 'brainstorm', 'BRAINSTORM_MODE_PROMPT'],
     ['../FollowUpLLM.ts', 'followup', 'UNIVERSAL_FOLLOWUP_PROMPT'],
@@ -45,7 +47,8 @@ describe('action LLMs consult the v2 resolver with the correct action', () => {
       const src = read(rel);
       assert.match(src, /import\s*\{[^}]*resolveV2SystemPrompt[^}]*\}\s*from\s*["']\.\/promptSystemV2["']/,
         `${rel}: missing resolveV2SystemPrompt import`);
-      assert.ok(src.includes(`action: '${action}'`), `${rel}: does not request action '${action}'`);
+      const requestsAction = action.endsWith('(') ? src.includes(action) : src.includes(`action: '${action}'`);
+      assert.ok(requestsAction, `${rel}: does not request action '${action}'`);
       assert.ok(src.includes(legacyConstant), `${rel}: legacy fallback constant removed prematurely`);
       // The v2 resolver must be a soft override (?? legacy), never a hard replacement.
       const idx = src.indexOf('resolveV2SystemPrompt({');
