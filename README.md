@@ -1,3 +1,6 @@
+> **This project is based on Natively, originally developed by Natively AI Private Limited.**
+> This branch is a personal, non-commercial modification shared under the same [Natively Personal Use Source License](LICENSE). It changes how "What to answer?" and "More" answers are worded and structured. It is not an official Natively build.
+
 # [Sponsored by Recall AI - API for desktop recording](https://docs.recall.ai/docs/desktop-sdk?utm_source=github&utm_medium=sponsorship&utm_campaign=evinjohnn-natively-ai-assistant)
 
 If you’re looking for a hosted desktop recording API, consider checking out [Recall.ai](https://docs.recall.ai/docs/desktop-sdk?utm_source=github&utm_medium=sponsorship&utm_campaign=evinjohnn-natively-ai-assistant), an API that records Zoom, Google Meet, Microsoft Teams, in-person meetings, and more.
