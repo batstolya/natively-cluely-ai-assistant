@@ -78,6 +78,7 @@ export const RU_GENERATED: Record<string, string> = {
     'Brainstorm': 'Мозговой штурм',
     'Recap': 'Итоги',
     'Follow Up Question': 'Уточняющий вопрос',
+    'More': 'Подробнее',
     'Stop': 'Стоп',
     'Answer': 'Ответить',
     'Remove all': 'Удалить всё',

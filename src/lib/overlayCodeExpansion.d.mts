@@ -1,3 +1,4 @@
+export const AUTO_WIDEN_FOR_CODE: boolean;
 export const CODE_EXPANSION_TRANSITION: {
   type: 'spring';
   duration: number;

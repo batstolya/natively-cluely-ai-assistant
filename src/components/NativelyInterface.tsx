@@ -3,6 +3,7 @@ import {
   ArrowRight,
   ArrowDown,
   ChevronDown,
+  ChevronsDown,
   Code,
   Copy,
   Check,
@@ -243,6 +244,7 @@ import {
   shouldDedupeOverlayAction,
 } from '../lib/overlayActionDedup.mjs';
 import { shouldDedupeManualSubmit } from '../lib/overlaySubmitDedup.mjs';
+import { collectMoreContext } from '../lib/moreContext.mjs';
 import { decideScrollInterrupt } from '../lib/scrollInterruptDecision.mjs';
 import {
   canScrollUp,
@@ -267,6 +269,7 @@ import {
 } from '../lib/overlayStealthFocusGuards.mjs';
 import {
   shouldEagerExpandForCodeToken,
+  AUTO_WIDEN_FOR_CODE,
   shouldHoldEagerCodeExpansion,
 } from '../lib/overlayCodeExpansion.mjs';
 import {
@@ -5002,6 +5005,9 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({
     ) {
       visible = true;
     }
+    // Code answers keep the text width (user decision 2026-09-30); an already
+    // expanded shell contracts back through the normal stable-visibility path.
+    if (!AUTO_WIDEN_FOR_CODE) visible = false;
 
     // Already in the correct state — clear any pending change so a
     // mid-flight tween isn't interrupted by a stale timer firing.
@@ -6613,7 +6619,7 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({
       || (streamingRenderModeRef.current !== 'react-code'
         && diagramsEnabledNow()
         && shouldUseStreamingDiagramUi(token, streamingTextRef.current));
-    if (shouldEagerExpandForCodeToken(intent, token, streamingTextRef.current)) {
+    if (AUTO_WIDEN_FOR_CODE && shouldEagerExpandForCodeToken(intent, token, streamingTextRef.current)) {
       eagerCodeExpansionHoldRef.current = true;
       // Respect a manual width pin: don't auto-grow if the user chose a width.
       if (manualWidthOverrideRef.current === null && !codeExpandedRef.current) {
@@ -8062,6 +8068,7 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({
     brainstorm: 'Brainstorm',
     'follow_up:shorten': 'Shorten',
     'follow_up:rephrase': 'Rephrase',
+    more: 'More',
   };
 
   const handleWhatToSay = async (promptInstruction?: string | React.MouseEvent) => {
@@ -8363,6 +8370,38 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({
       ]);
     } finally {
       endOverlayAction(actionKey);
+      setIsProcessing(false);
+    }
+  };
+
+  // "More": go deeper on the last question with only what no shown answer
+  // (base answer + earlier Mores) already covers, so each press adds depth.
+  const handleMore = async () => {
+    if (!tryBeginOverlayAction('more')) return;
+    const moreContext = collectMoreContext(messages);
+    setIsExpanded(true);
+    setIsProcessing(true);
+    setMessages((prev) => [
+      ...prev,
+      { id: genMessageId(), role: 'user', text: QUICK_ACTION_LABELS.more, isQuickActionLabel: true },
+    ]);
+    prepareIntelligenceStreamPlaceholder('more');
+    analytics.trackCommandExecuted('more');
+
+    try {
+      await window.electronAPI.generateMore(moreContext?.question ?? null, moreContext?.previousAnswers ?? []);
+    } catch (err) {
+      discardEmptyPlaceholder('more');
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: genMessageId(),
+          role: 'system',
+          ...failedLine(err),
+        },
+      ]);
+    } finally {
+      endOverlayAction('more');
       setIsProcessing(false);
     }
   };
@@ -10068,7 +10107,7 @@ Provide only the answer, nothing else.`;
         );
       }
 
-      if (msg.intent === 'what_to_answer') {
+      if (msg.intent === 'what_to_answer' || msg.intent === 'more') {
         // Split text by code blocks (Handle unclosed blocks at EOF).
         // gistBody (not msg.text): the [[GIST]] line renders as the chip below.
         const parts = gistBody.split(/(```[\s\S]*?(?:```|$))/g);
@@ -12202,6 +12241,10 @@ Provide only the answer, nothing else.`;
                       <span className={answerChipClass(false)} style={appearance.chipStyle}>
                         <span className="ov-chip-stack">{answerSizers}</span>
                       </span>
+                      <span className={chipClass} style={appearance.chipStyle}>
+                        <ChevronsDown className="w-3 h-3 opacity-70" />
+                        {ghost(t('More'))}
+                      </span>
                     </div>
                   );
                   return (
@@ -12241,6 +12284,9 @@ Provide only the answer, nothing else.`;
                               </SwapText>
                             </span>
                           </span>
+                        </button>
+                        <button onClick={handleMore} className={chipClass} style={appearance.chipStyle}>
+                          <ChevronsDown className="w-3 h-3 opacity-70" /> {t('More')}
                         </button>
                       </div>
                       {measureRow('recap', recapRowMeasureRef)}

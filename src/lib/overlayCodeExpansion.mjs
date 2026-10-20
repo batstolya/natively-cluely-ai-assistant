@@ -1,3 +1,7 @@
+// User decision 2026-09-30: code answers keep the text width; code cards
+// scroll horizontally inside the panel instead of widening the shell.
+export const AUTO_WIDEN_FOR_CODE = false;
+
 const EAGER_CODE_EXPANSION_INTENTS = new Set(['what_to_answer', 'chat']);
 
 export const CODE_EXPANSION_TRANSITION = {

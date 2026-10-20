@@ -15799,6 +15799,21 @@ export function initializeIpcHandlers(appState: AppState): void {
     }, (r: any) => !r || r.refined === null || r.refined === undefined);
   });
 
+  // "More": go deeper on the last question with only new material (2026-09-30).
+  safeHandle('generate-more', async (_, question: string | null, previousAnswers: string[]) => {
+    return _tracked(async () => {
+      const intelligenceManager = appState.getIntelligenceManager();
+      const answers = Array.isArray(previousAnswers) ? previousAnswers.filter((a) => typeof a === 'string') : [];
+      const more = await intelligenceManager.runMore(typeof question === 'string' ? question : null, answers);
+      if (more) {
+        try {
+          PhoneMirrorService.getInstance().publishAssistantMessage(crypto.randomUUID(), more, 'More');
+        } catch (_) {}
+      }
+      return { more };
+    }, (r: any) => !r || r.more === null || r.more === undefined);
+  });
+
   // MODE 4: Recap (Summary)
   safeHandle('generate-recap', async () => {
     return _tracked(async () => {

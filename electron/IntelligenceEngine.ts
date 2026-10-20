@@ -504,6 +504,9 @@ export class IntelligenceEngine extends EventEmitter {
      * question (answer). Null ⇒ the cooldown behaves exactly as it always has.
      */
     private lastTriggerQuestion: string | null = null;
+    // The question the latest stored WTA answer was generated for — More deepens
+    // THIS, not whatever the interviewer said after it (2026-09-30).
+    private lastAnsweredWtaQuestion: string | null = null;
 
     // Speculative inference: start LLM on high-confidence interviewer partials
     private speculativeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -6927,6 +6930,7 @@ export class IntelligenceEngine extends EventEmitter {
             } catch { /* normalizer never blocks the answer */ }
 
             this.session.addAssistantMessage(finalWtaAnswer, wtaWriteDecision, 'what_to_answer');
+            this.lastAnsweredWtaQuestion = (answerPlan.question || question || extractedQuestion.latestQuestion || lastInterviewerTurn || '').trim() || null;
 
             // Full-JIT write-gating law (§6): a provider-error/no-answer WTA
             // fallback (deadline timeout, leaked-schema-stub) carries a
@@ -7626,6 +7630,62 @@ export class IntelligenceEngine extends EventEmitter {
             this.setMode('idle');
             return fullRefined;
 
+        } catch (error) {
+            this.emit('error', error as Error, 'follow_up');
+            this.setMode('idle');
+            return null;
+        }
+    }
+
+    /**
+     * "More" quick action (2026-09-30): go deeper on the last question with only
+     * what none of `previousAnswers` (base answer + earlier Mores, oldest first)
+     * already cover. `question` is null for button-triggered answers — the
+     * interviewer's last turn stands in. Streams on the refined-answer channel.
+     */
+    async runMore(question: string | null, previousAnswers: string[]): Promise<string | null> {
+        const { MORE_INTENT, MORE_SYSTEM_PROMPT, buildMoreUserMessage, resolveMoreQuestion, normalizeMoreHeader } = require('./llm/MorePrompt') as typeof import('./llm/MorePrompt');
+        const answers = (previousAnswers || []).filter((a) => typeof a === 'string' && a.trim());
+        if (answers.length === 0) {
+            this.emit('refined_answer', "There's no answer yet to go deeper on — ask something first.", MORE_INTENT);
+            return null;
+        }
+        const resolvedQuestion = resolveMoreQuestion(question, this.lastAnsweredWtaQuestion, this.session.getLastInterviewerTurn());
+
+        this.setMode('follow_up');
+        const generationId = ++this.currentGenerationId;
+        let full = '';
+        let streamAborted = false;
+        try {
+            const stream = this.llmHelper.streamChat(
+                buildMoreUserMessage(resolvedQuestion, answers),
+                undefined,
+                undefined,
+                MORE_SYSTEM_PROMPT,
+                true, // synthesized meta-message — keep it out of the knowledge-mode classifier
+                true, // skipModeInjection: the More prompt owns the shape (legacy mode template must not ride on top)
+            );
+            for await (const token of stream) {
+                if (this.currentGenerationId !== generationId) {
+                    await stream.return(undefined);
+                    streamAborted = true;
+                    break;
+                }
+                this.emit('refined_answer_token', token, MORE_INTENT);
+                full += token;
+            }
+            if (!streamAborted) {
+                if (full) {
+                    full = normalizeMoreHeader(full);
+                    this.session.addAssistantMessage(full, undefined, 'what_to_answer');
+                    this.session.pushUsage({ type: 'followup', timestamp: Date.now(), question: 'More', answer: full });
+                    this.emit('refined_answer', full, MORE_INTENT);
+                } else {
+                    this.emit('refined_answer', "Couldn't get more detail this time — try again.", MORE_INTENT);
+                }
+            }
+            this.setMode('idle');
+            return full || null;
         } catch (error) {
             this.emit('error', error as Error, 'follow_up');
             this.setMode('idle');

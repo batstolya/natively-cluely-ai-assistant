@@ -311,6 +311,10 @@ export class IntelligenceManager extends EventEmitter {
         return this.engine.runFollowUp(intent, userRequest);
     }
 
+    async runMore(question: string | null, previousAnswers: string[]): Promise<string | null> {
+        return this.engine.runMore(question, previousAnswers);
+    }
+
     async runRecap(): Promise<string | null> {
         return this.engine.runRecap();
     }
