@@ -237,8 +237,14 @@ const NO_TERMS_MATERIAL = ' The same holds for what the price depends on, which 
  */
 const STUDY_SCOPE = ' The one exception is the scope of a study the material describes: that it did not measure, test or include something the material never mentions is supported, keep it.';
 
-export function claimVerifierSystemPrompt(modeId: string, surface: 'spoken' | 'typed' = 'spoken', opts: { noDocuments?: boolean } = {}): string {
+export function claimVerifierSystemPrompt(modeId: string, surface: 'spoken' | 'typed' = 'spoken', opts: { noDocuments?: boolean } = {}, env: Record<string, string | undefined> = process.env): string {
   const typed = surface === 'typed';
+  // Compact "What to answer?" test (NATIVELY_WTA_COMPACT=1): the short editor
+  // that pairs with the compact answer prompt; same output format.
+  if (!typed) {
+    const { isWtaCompactEnabled, WTA_COMPACT_EDITOR } = require('./wtaCompactPrompt') as typeof import('./wtaCompactPrompt');
+    if (isWtaCompactEnabled(env)) return WTA_COMPACT_EDITOR;
+  }
   const productGap = opts.noDocuments && (modeId === 'sales' || modeId === 'call-center')
     ? NO_PRODUCT_MATERIAL + (modeId === 'call-center' ? NO_POLICY_MATERIAL : NO_TERMS_MATERIAL) : '';
   const reply = typed

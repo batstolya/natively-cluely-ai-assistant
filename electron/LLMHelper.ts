@@ -13070,6 +13070,18 @@ let isMultimodal = !!(imagePaths?.length);
       this.currentModelId === GEMINI_FLASH_MODEL ? 1 :
       0;
     const providers = ladder.slice(startIndex);
+    // A selected model that is not on the ladder but was probed for this path
+    // (MINIMAL_THINKING_MODELS: gemini-3.6-flash) leads, with the full ladder
+    // behind it. Before this, picking it silently answered on flash-lite
+    // (captured on the wire 2026-10-20). Other off-ladder picks are unchanged.
+    const selected = this.currentModelId;
+    const selectedId = `gemini_selected:${selected}`;
+    const leadsSelected = MINIMAL_THINKING_MODELS.has(selected)
+      && ![GEMINI_FLASH_LITE_MODEL, GEMINI_FLASH_MODEL, GEMINI_PRO_MODEL].includes(selected);
+    if (leadsSelected) {
+      providers.unshift({ id: selectedId, name: `Gemini (${selected})`, isLocal: false, priority: -1, ttftTimeoutMs: GEMINI_TEXT_TTFT_MS.flash,
+        open: (sig) => this.streamWithGeminiModel(fullMessage, selected, imagePaths, systemInstruction, sig, thinkingBudget) });
+    }
 
     // All rungs share ONE Gemini API key. A permanent key-level failure (expired
     // / invalid key, no credits, billing, 401/403) on one rung means every other
@@ -13079,7 +13091,13 @@ let isMultimodal = !!(imagePaths?.length);
     // timeout, 5xx) still walk lite→flash→pro normally.
     const cfg: VisionFallbackConfig = { ...DEFAULT_TEXT_FALLBACK_CONFIG, stopChainOnError: isPermanentKeyError };
 
-    const ordered = orderTextByHealth(providers, this.textHealth, Date.now());
+    const now = Date.now();
+    const ordered = orderTextByHealth(providers, this.textHealth, now);
+    // Health ordering puts the faster flash-lite first once both have answered;
+    // the user's pick keeps the lead unless it is cooling down after a failure.
+    if (leadsSelected && (this.textHealth.get(selectedId)?.openUntil ?? 0) <= now) {
+      ordered.sort((a, b) => Number(b.id === selectedId) - Number(a.id === selectedId));
+    }
     yield* runStreamingTextFallback(ordered, this.textHealth, cfg, {}, abortSignal);
   }
 

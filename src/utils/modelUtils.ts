@@ -9,8 +9,12 @@ export const STANDARD_CLOUD_MODELS: Record<string, {
         hasKeyCheck: (creds) => !!creds?.hasGeminiKey,
         // ids and names are zipped positionally by the picker — they must be
         // bumped together or a row shows one model's label and selects another.
-        ids: ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-3.1-pro-preview'],
-        names: ['Gemini 3.8 Flash', 'Gemini 3.1 Flash Lite', 'Gemini 3.1 Pro'],
+        // gemini-3.6-flash is appended (not inserted) so the descs rows keep
+        // their models: with MINIMAL thinking it measured ~1.3s to first token
+        // at ~80% fact coverage vs ~2.6s / ~76% for 3.8-flash at LOW (2026-10-20).
+        // LLMHelper.streamGeminiTextCascade puts it first when selected.
+        ids: ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-3.1-pro-preview', 'gemini-3.6-flash'],
+        names: ['Gemini 3.8 Flash', 'Gemini 3.1 Flash Lite', 'Gemini 3.1 Pro', 'Gemini 3.6 Flash'],
         descs: ['Fastest • Multimodal', 'Reasoning • High Quality'],
         pmKey: 'geminiPreferredModel'
     },

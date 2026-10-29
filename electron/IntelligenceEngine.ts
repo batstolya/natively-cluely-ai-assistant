@@ -4363,8 +4363,13 @@ export class IntelligenceEngine extends EventEmitter {
                         });
                         console.log(`[IntelligenceEngine] WTA V3 prompt in effect: answerability=${_v3.answerability} evidence=${_v3.evidenceCount} fallback=${_v3.fallbackUsed}`);
                     }
-                    return _v3 ? {
-                        system: _v3.system, user: _v3.user,
+                    // Compact "What to answer?" test (NATIVELY_WTA_COMPACT=1): the
+                    // composed turn is rebuilt as one short system prompt and a
+                    // four-part message. Evidence and the flags below are unchanged.
+                    const { isWtaCompactEnabled, compactWtaTurn } = require('./llm/wtaCompactPrompt') as typeof import('./llm/wtaCompactPrompt');
+                    const _turn = _v3 ? (isWtaCompactEnabled() ? compactWtaTurn(_v3 as { system: string; user: string; evidenceBlock?: string }, String(wtaTurnQuestion || '')) : { system: _v3.system, user: _v3.user }) : null;
+                    return _v3 && _turn ? {
+                        system: _turn.system, user: _turn.user,
                         // T4: the evidence this prompt was composed from. The
                         // post-stream doc-grounded validator uses THIS rather
                         // than a fresh legacy retrieval — see the validator's
